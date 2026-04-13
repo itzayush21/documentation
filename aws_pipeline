@@ -62,12 +62,12 @@ The pipeline supports:
 ```text
 s3://cdw-part-sales/
 ├── landing/              ← Raw, immutable
-│   ├── dim_geography/
-│   ├── dim_customer/
-│   ├── dim_vendor/
-│   ├── dim_part/
-│   ├── bridge_vendor_part/
-│   └── sales/
+│   ├──  raw_geography/
+│   ├── raw_customer/
+│   ├── raw_vendor/
+│   ├── raw_part/
+│   ├── raw_bridge_vendor_part/
+│   └── raw_sales/
 │
 ├── staging/              ← Cleaned & conformed
 │   ├── dim_geography/
