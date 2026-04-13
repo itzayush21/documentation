@@ -62,8 +62,12 @@ The pipeline supports:
 ```text
 s3://cdw-part-sales/
 ├── landing/              ← Raw, immutable
-│   └── agency_id=XX/
-│       └── load_date=YYYY-MM-DD/
+│   ├── dim_geography/
+│   ├── dim_customer/
+│   ├── dim_vendor/
+│   ├── dim_part/
+│   ├── bridge_vendor_part/
+│   └── sales/
 │
 ├── staging/              ← Cleaned & conformed
 │   ├── dim_geography/
