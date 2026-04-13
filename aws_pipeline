@@ -1,0 +1,361 @@
+Below is the **final, consolidated, enterprise‑grade documentation** for your project.  
+This is written to be **future‑proof**, **reusable**, and suitable for:
+
+✅ Project handover  
+✅ Architecture & design reviews  
+✅ Internal wikis / Confluence  
+✅ Interview & certification reference  
+✅ Long‑term maintenance
+
+You can treat this as the **authoritative pipeline document**.
+
+***
+
+# 📘 Enterprise Data Warehouse Pipeline Documentation
+
+**Project Name:** Centralized Part Sales Data Warehouse  
+**Cloud Platform:** AWS  
+**Core Services:** Amazon S3, AWS Glue, Amazon Redshift, Amazon EventBridge  
+**Design Pattern:** Lake‑to‑Warehouse with SCD Management
+
+***
+
+## 1. Project Objective
+
+The objective of this project is to design and implement a **scalable, enterprise‑level data pipeline** that ingests sales data from multiple agencies, processes and governs it centrally, and delivers analytics‑ready data using a **star schema** hosted in Amazon Redshift.
+
+The pipeline supports:
+
+*   Daily operational reporting
+*   Monthly reconciliation and restatement
+*   Historical tracking using **Slowly Changing Dimensions (SCDs)**
+*   High‑volume transactional processing
+
+***
+
+## 2. High‑Level Architecture Overview
+
+### Architecture Pattern
+
+**Data Lake → Staging → Data Warehouse**
+
+    Source Agencies
+          ↓
+    Amazon S3 (Landing Zone)
+          ↓
+    AWS Glue Crawlers
+          ↓
+    AWS Glue Workflows (Multiple Jobs)
+     ┌────────────────────────────────────────────┐
+     │ Validation | SCD Processing | Staging       │
+     │ Fact Consolidation | Load | Quality Checks  │
+     └────────────────────────────────────────────┘
+          ↓
+    Amazon Redshift (Predefined Star Schema)
+
+***
+
+## 3. Data Lake Architecture (Amazon S3)
+
+### 3.1 S3 Zone Design
+
+```text
+s3://cdw-part-sales/
+├── landing/              ← Raw, immutable
+│   └── agency_id=XX/
+│       └── load_date=YYYY-MM-DD/
+│
+├── staging/              ← Cleaned & conformed
+│   ├── dim_geography/
+│   ├── dim_customer/
+│   ├── dim_vendor/
+│   ├── dim_part/
+│   ├── bridge_vendor_part/
+│   └── sales/
+│
+├── rejected/             ← Data quality failures
+├── audit/                ← Load metrics & counts
+└── archive/              ← Historical retention
+```
+
+### Key Principles
+
+*   **Landing = Raw truth**
+*   **Staging = Clean & reusable**
+*   **Fact data is NOT stored in S3**
+
+***
+
+## 4. Dimension Classification & SCD Strategy
+
+| Table / Entity  | SCD Type  | Description                 |
+| --------------- | --------- | --------------------------- |
+| Geography       | Type 1    | Overwrites history          |
+| Customer        | Type 1    | Overwrites history          |
+| Vendors         | Type 2    | Preserves change history    |
+| Vendor\_Parts   | Type 2    | Tracks availability history |
+| Parts           | Reference | Static lookup               |
+| Sales (staging) | N/A       | Transactional staging only  |
+| Fact Table      | N/A       | Stored only in Redshift     |
+
+***
+
+## 5. AWS Glue Architecture (Core of Pipeline)
+
+### 5.1 Glue Crawlers
+
+**Purpose**
+
+*   Automatically discover schemas
+*   Handle schema drift
+*   Maintain Glue Data Catalog
+
+**Crawler Types**
+
+*   Landing crawler
+*   Staging crawler
+
+***
+
+### 5.2 Glue Workflows (Enterprise Orchestration)
+
+Glue Workflows group multiple Glue jobs into **ordered, fault‑tolerant pipelines**.
+
+***
+
+## 6. Glue Workflow Design
+
+### Workflow Name
+
+`cdw_part_sales_enterprise_workflow`
+
+### Logical Flow
+
+    Start
+     ├── Crawler_Landing
+     ├── Job_Data_Validation
+     ├── Job_Process_Type1_Dimensions
+     ├── Job_Process_Type2_Dimensions
+     ├── Job_Process_Reference_Tables
+     ├── Job_Clean_And_Stage_Sales
+     ├── Crawler_Staging
+     ├── Job_Load_Dimensions_To_Redshift
+     ├── Job_Consolidate_And_Load_Fact
+     ├── Job_Post_Load_Validation
+     └── End
+
+***
+
+## 7. Glue Job Responsibilities (Detailed)
+
+***
+
+### 🔹 Job 1: Data Validation & Profiling
+
+**Responsibilities**
+
+*   Check missing columns
+*   Detect duplicate file drops
+*   Verify row counts
+*   Log metrics to `audit/`
+
+**Failure Handling**
+
+*   Stops workflow if validation fails
+
+***
+
+### 🔹 Job 2: Type‑1 Dimension Processing
+
+(Geography, Customer)
+
+**Logic**
+
+*   Deduplicate on business key
+*   Clean & standardize
+*   Overwrite existing values
+*   Load to Redshift
+
+✅ No history retained  
+✅ Simple `MERGE` or overwrite load
+
+***
+
+### 🔹 Job 3: Type‑2 Dimension Processing
+
+(Vendors, Vendor\_Parts)
+
+**Logic**
+
+1.  Compare incoming record with current active record
+2.  Detect change using hash or field comparison
+3.  Expire old record
+4.  Insert new version
+
+**Type‑2 Columns**
+
+```text
+START_DATE
+END_DATE
+IS_CURRENT
+```
+
+✅ Full historical trace  
+✅ Point‑in‑time analytics supported
+
+***
+
+### 🔹 Job 4: Reference Table Processing
+
+(Parts)
+
+**Logic**
+
+*   Full refresh
+*   No SCD logic
+*   Lightweight validation
+
+***
+
+### 🔹 Job 5: Sales Cleaning & Staging
+
+**Output**
+`s3://cdw-part-sales/staging/sales`
+
+**Responsibilities**
+
+*   Deduplicate `SALE_ID`
+*   Remove invalid records
+*   Enforce numeric integrity
+*   Standardize codes
+
+This table is:
+✅ Clean  
+✅ Replayable  
+✅ Fact‑ready
+
+***
+
+### 🔹 Job 6: Load Dimensions into Redshift
+
+**Method**
+
+*   Redshift COPY
+*   Proper load order
+*   Use staging data only
+
+***
+
+### 🔹 Job 7: Fact Consolidation & Load (Key Job)
+
+> **The fact table is never stored in S3.**
+
+**Inputs**
+
+*   Staging sales
+*   Dimension tables (current rows)
+
+**Business Logic**
+
+```text
+GROSS_SALES = QUANTITY_SOLD × UNIT_PRICE
+NET_SALES   = GROSS_SALES − DISCOUNT_AMT
+```
+
+**Output**
+
+*   Direct load into `F_PART_SALE_FACT`
+
+✅ High performance  
+✅ No duplicate storage  
+✅ Schema enforced
+
+***
+
+### 🔹 Job 8: Post‑Load Validation
+
+**Checks**
+
+*   Row‑count reconciliation
+*   Aggregate comparisons
+*   Late‑record detection
+
+**Alerts**
+
+*   CloudWatch + SNS
+
+***
+
+## 8. Scheduling Strategy (Enterprise Level)
+
+### Daily Schedule
+
+*   Incremental loads
+*   Latest partitions only
+*   Append facts
+*   Update current dimension rows
+
+### Monthly Schedule
+
+*   Historical reconciliation
+*   Late‑arriving corrections
+*   Full Type‑2 validation
+
+### On‑Demand
+
+*   Backfill
+*   Audit replay
+*   Disaster recovery
+
+Scheduling implemented using **Amazon EventBridge**.
+
+***
+
+## 9. Redshift Design Principles
+
+*   Pre‑defined schema
+*   Star schema enforced
+*   Fact table joins using surrogate keys
+*   Optimized using:
+    *   DISTKEY
+    *   SORTKEY
+    *   Compression encoding
+
+***
+
+## 10. Security & Governance
+
+✅ IAM roles per layer  
+✅ Least‑privilege access  
+✅ Encryption at rest & in transit  
+✅ Glue job bookmarks  
+✅ Audit & lineage support
+
+***
+
+## 11. Scalability & Reliability Features
+
+| Area       | Enterprise Feature    |
+| ---------- | --------------------- |
+| S3         | Partitioning & replay |
+| Glue       | Auto‑scaling Spark    |
+| Workflow   | Modular jobs          |
+| Redshift   | Optimized loads       |
+| Scheduling | Event‑driven          |
+| Recovery   | Idempotent loads      |
+
+***
+
+## 12. Final Executive / Interview Summary
+
+> This project implements an enterprise‑grade data warehouse pipeline using AWS‑native services and a lake‑to‑warehouse architecture. Raw data lands in Amazon S3 and is processed through AWS Glue workflows that orchestrate validation, SCD‑aware dimension processing, and transactional staging. Type‑1 dimensions overwrite history, Type‑2 dimensions preserve versioned changes, and reference data is refreshed as required. Clean sales data is staged in S3, while the fact table is consolidated within Glue and loaded directly into Amazon Redshift, ensuring optimal performance and single‑source‑of‑truth analytics. The pipeline supports daily incremental loads, monthly reconciliation, and on‑demand processing, delivering scalable, governed, and analytics‑ready data.
+
+***
+
+If you want, next I can:
+✅ Turn this into **PDF / PPT architecture documentation**  
+✅ Provide **Glue pseudocode & Redshift DDLs**  
+✅ Create **deep interview Q\&A**  
+✅ Prepare **architecture diagrams**
+
+Just tell me what you’d like to finalize next.
